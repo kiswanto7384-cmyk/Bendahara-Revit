@@ -57,7 +57,8 @@ table.l th{background:var(--pr2)}
 .doc .nt{font-size:12px}
 .doc .nt h2{font-size:17px;margin:6px 0}
 .doc .box{border:1px solid #000;padding:6px 8px;margin-top:8px}
-@media print{#app{display:none!important}#pa{display:block!important}body{background:#fff}:root{padding:0}}
+#toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);max-width:92vw;padding:11px 18px;border-radius:8px;background:var(--tx);color:var(--bg);font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.3);z-index:50;display:none;text-align:center}#toast.err{background:var(--bad);color:var(--sf)}
+@media print{#toast{display:none!important}#app{display:none!important}#pa{display:block!important}body{background:#fff}:root{padding:0}}
 @media (max-width:600px){.wrap{padding:8px}}
 </style></head>
 <body>
@@ -69,6 +70,7 @@ table.l th{background:var(--pr2)}
   <div class="stats" id="stats"></div>
   <div id="view"></div>
 </div>
+<div id="toast" role="status" aria-live="polite"></div>
 <div id="pa"></div>
 <script>
 const $=s=>document.querySelector(s);
@@ -88,7 +90,7 @@ function rows(){
   const r=[];
   S.tx.forEach(t=>{
     const j=+t.jumlah||0,v=t.via==='bank'?'n':'k';
-    const b={d:t.tgl,no:t.no,t:t.id,k:0,n:0,p:0,bi:0,bo:0,pj:'',u:t.uraian};
+    const b={d:t.tgl,no:t.no||t.spno,t:t.id,k:0,n:0,p:0,bi:0,bo:0,pj:'',u:(t.siplah?'[SIPLah] ':'')+t.uraian};
     const add=o=>r.push(Object.assign({},b,o));
     if(t.jenis==='terima')add({n:j,bi:j});
     else if(t.jenis==='tarik')add({n:-j,k:j});
@@ -144,7 +146,23 @@ const sat=['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembi
 function tb(n){n=Math.floor(n);if(n<12)return sat[n];if(n<20)return tb(n-10)+' belas';if(n<100)return tb(Math.floor(n/10))+' puluh'+(n%10?' '+tb(n%10):'');if(n<200)return 'seratus'+(n%100?' '+tb(n%100):'');if(n<1000)return tb(Math.floor(n/100))+' ratus'+(n%100?' '+tb(n%100):'');if(n<2000)return 'seribu'+(n%1000?' '+tb(n%1000):'');if(n<1e6)return tb(Math.floor(n/1e3))+' ribu'+(n%1000?' '+tb(n%1000):'');if(n<1e9)return tb(Math.floor(n/1e6))+' juta'+(n%1e6?' '+tb(n%1e6):'');if(n<1e12)return tb(Math.floor(n/1e9))+' miliar'+(n%1e9?' '+tb(n%1e9):'');return tb(Math.floor(n/1e12))+' triliun'+(n%1e12?' '+tb(n%1e12):'')}
 const terbilang=n=>n<1?'nol rupiah':tb(n).trim()+' rupiah';
 function items(s){return String(s||'').split('\n').map(l=>l.split('|').map(x=>x.trim())).filter(a=>a[0]).map(a=>{const q=parseFloat(a[1])||1,h=parseFloat(a[3])||0;return{n:a[0],q,s:a[2]||'',h,j:q*h}})}
+function notaSp(t){
+  const it=items(t.items),tot=+t.jumlah||0,ok=+t.ongkir||0,i=S.id;
+  const base=it.reduce((a,x)=>a+x.j,0)>0?it:[{n:t.uraian,q:1,s:'paket',h:tot-ok,j:tot-ok}];
+  return `<div class="doc nt"><div class="kop"><b>${esc(i.sekolah.toUpperCase())}</b>NPSN ${esc(i.npsn)} · Kabupaten/Kota ${esc(i.kab)}<br>Panitia Pembangunan Satuan Pendidikan (P2SP) · Program Revitalisasi Satuan Pendidikan TA ${i.tahun}</div>
+  <h2>BUKTI PEMBAYARAN BELANJA VIA SIPLAH</h2>
+  <table class="idt"><tr><td width="150">No. bukti</td><td>: ${esc(t.no)||'-'}</td><td width="90">Tanggal</td><td>: ${fd(t.tgl)}</td></tr><tr><td>No. pesanan / invoice</td><td colspan="3">: ${esc(t.spno)||'…………………………'}</td></tr><tr><td>Mitra SIPLah</td><td colspan="3">: ${esc(t.spmitra)||'…………………………'}</td></tr><tr><td>Penyedia</td><td colspan="3">: ${esc(t.penyedia)||'…………………………'}</td></tr><tr><td>Keperluan</td><td colspan="3">: ${esc(t.uraian)}</td></tr></table>
+  <table class="t" style="margin-top:8px"><tr><th width="28">No</th><th>Nama barang / jasa</th><th>Jumlah</th><th>Satuan</th><th>Harga satuan (Rp)</th><th>Jumlah (Rp)</th></tr>
+  ${base.map((x,k)=>`<tr><td class="r">${k+1}</td><td>${esc(x.n)}</td><td class="r">${x.q}</td><td>${esc(x.s)}</td><td class="r">${rp(x.h)}</td><td class="r">${rp(x.j)}</td></tr>`).join('')}
+  ${ok?`<tr><td colspan="5" class="r">Biaya kirim / admin</td><td class="r">${rp(ok)}</td></tr>`:''}
+  <tr class="sum"><td colspan="5" class="r">Total dibayar sesuai invoice</td><td class="r">${rp(tot)}</td></tr></table>
+  <div class="box"><b>Terbilang:</b> <i>${esc(terbilang(tot))}</i></div>
+  <p>Pembayaran dilakukan melalui transfer bank sesuai invoice SIPLah. Pajak telah diperhitungkan dalam invoice dan dipungut oleh mitra SIPLah.</p>
+  <p><b>Lampiran:</b> (&nbsp;) Invoice SIPLah &nbsp; (&nbsp;) Bukti transfer bank &nbsp; (&nbsp;) Berita acara serah terima barang</p>
+  <div class="ttd"><div>Bendahara<div class="sp"></div><b><u>${esc(i.bend)||'……………………'}</u></b><br>NIP. ${esc(i.nipb)||'…………………'}</div><div>Ketua P2SP<div class="sp"></div><b><u>${esc(i.ketua)||'……………………'}</u></b></div><div>Mengetahui,<br>Kepala Sekolah<div class="sp"></div><b><u>${esc(i.kepsek)||'……………………'}</u></b><br>NIP. ${esc(i.nipk)||'…………………'}</div></div></div>`;
+}
 function nota(t){
+  if(t.siplah)return notaSp(t);
   const it=items(t.items),tot=+t.jumlah||0;
   const list=it.length&&it.reduce((a,x)=>a+x.j,0)>0?it:[{n:t.uraian,q:1,s:'paket',h:tot,j:tot}];
   const ppn=+t.ppn||0,pph=+t.pph||0,net=tot-ppn-pph;
@@ -168,16 +186,23 @@ function pr(html,o){$('#pa').innerHTML=html;$('#pg').textContent='@page{size:A4 
 const SK='bendahara-p2sp-sync';
 let cfg={};try{cfg=JSON.parse(localStorage.getItem(SK))||{}}catch(e){}
 let tm;
-const sMsg=t=>{const e=$('#sy');if(e)e.textContent=t};
+let tt;function toast(t,err){const e=$('#toast');e.textContent=t;e.className=err?'err':'';e.style.display='block';clearTimeout(tt);tt=setTimeout(()=>e.style.display='none',err?8000:3500)}
+const sMsg=(t,err)=>{const e=$('#sy');if(e){e.textContent=t;e.style.color=err?'var(--bad)':''}toast(t,err)};
 async function call(b){const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(Object.assign({token:cfg.token},b))});return r.json()}
-async function pushNow(){if(!cfg.url)return;try{sMsg('Mengirim ke Google Sheet…');const r=await call({action:'save',data:S});if(r.ok){try{localStorage.removeItem('bendahara-dirty')}catch(e){}sMsg('Tersimpan di Google Sheet pukul '+new Date().toLocaleTimeString('id-ID'))}else sMsg('Gagal menyimpan: '+r.error)}catch(e){sMsg('Gagal terhubung ke Google Sheet. Data tetap aman di browser ini.')}}
+async function pushNow(manual){
+  if(!cfg.url||!cfg.token){if(manual)sMsg('Belum bisa kirim: isi Alamat Web App dan Token dulu di kartu Penyimpanan Google Sheet.',true);return}
+  try{sMsg('Mengirim ke Google Sheet…');const r=await call({action:'save',data:S});
+    if(r.ok){try{localStorage.removeItem('bendahara-dirty')}catch(e){}sMsg('Berhasil: '+S.tx.length+' transaksi tersimpan di Google Sheet pukul '+new Date().toLocaleTimeString('id-ID'))}
+    else sMsg('Gagal menyimpan: '+r.error,true)}
+  catch(e){sMsg('Gagal terhubung ke Google Sheet. Periksa alamat Web App dan koneksi internet. Data tetap aman di browser.',true)}
+}
 function push(){if(!cfg.url)return;try{localStorage.setItem('bendahara-dirty','1')}catch(e){}clearTimeout(tm);tm=setTimeout(pushNow,1200)}
 async function pull(manual){
-  if(!cfg.url){if(manual)sMsg('Isi alamat Web App terlebih dahulu.');return}
+  if(!cfg.url){if(manual)sMsg('Isi Alamat Web App dan Token dulu di kartu Penyimpanan Google Sheet.',true);return}
   try{sMsg('Mengambil data dari Google Sheet…');const r=await call({action:'load'});if(r.error)throw new Error(r.error);
     if(r.data&&r.data.id){r.data.id=Object.assign({},DEF.id,r.data.id);r.data.ba=r.data.ba||{};S=r.data;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}sMsg('Data dimuat dari Google Sheet.')}
     else{sMsg('Sheet masih kosong, data di browser dikirim.');pushNow()}
-    R()}catch(e){sMsg('Gagal mengambil data: '+e.message)}
+    R()}catch(e){sMsg('Gagal mengambil data: '+e.message,true)}
 }
 /* ---------- BP kegiatan & BA kas ---------- */
 function kegList(){return String(S.id.keg||'').split('\n').map(l=>l.split('|').map(x=>x.trim())).filter(a=>a[0]).map(a=>({n:a[0],a:parseFloat(String(a[1]||'0').replace(/\./g,'').replace(',','.'))||0}))}
@@ -193,7 +218,7 @@ function kegDoc(){
   <p style="margin:8px 0 2px"><b>Rekapitulasi realisasi per kegiatan</b></p>
   <table class="t"><tr><th>Kegiatan / komponen</th><th>Anggaran</th><th>Realisasi bulan ini</th><th>Realisasi s.d. bulan ini</th><th>Sisa anggaran</th></tr>${rk||'<tr><td colspan="5">Belum ada kegiatan</td></tr>'}<tr class="sum"><td>Jumlah</td><td class="r">${rp(ta)}</td><td class="r">${rp(tb2)}</td><td class="r">${rp(ts)}</td><td class="r">${rp(ta-ts)}</td></tr></table>
   <p style="margin:8px 0 2px"><b>Rincian belanja bulan ini</b></p>
-  <table class="t"><tr><th>Tanggal</th><th>No. bukti</th><th>Kegiatan</th><th>Uraian</th><th>Jumlah</th></tr>${det.map(t=>`<tr><td>${fd(t.tgl)}</td><td>${esc(t.no)}</td><td>${esc(nm(t))}</td><td>${esc(t.uraian)}</td><td class="r">${rp(+t.jumlah||0)}</td></tr>`).join('')||'<tr><td colspan="5">Belum ada belanja bulan ini</td></tr>'}</table>${ttd()}</div>`;
+  <table class="t"><tr><th>Tanggal</th><th>No. bukti</th><th>Kegiatan</th><th>Uraian</th><th>Jumlah</th></tr>${det.map(t=>`<tr><td>${fd(t.tgl)}</td><td>${esc(t.no)}</td><td>${esc(nm(t))}</td><td>${t.siplah?'[SIPLah] ':''}${esc(t.uraian)}</td><td class="r">${rp(+t.jumlah||0)}</td></tr>`).join('')||'<tr><td colspan="5">Belum ada belanja bulan ini</td></tr>'}</table>${ttd()}</div>`;
 }
 const kegView=()=>`<div class="bar"><button class="pri" data-a="pk">Cetak buku pembantu kegiatan ${BLN[mon]}</button></div><p class="sub">Daftar kegiatan dan anggaran diatur di tab Pengaturan, lalu dipilih saat mencatat belanja.</p><div class="sheet">${kegDoc()}</div>`;
 function baDoc(){
@@ -238,20 +263,24 @@ function txView(){
   <label data-j="belanja setorpajak">Dibayar dari<select name="via">${sel('via',{kas:'Kas tunai',bank:'Bank'},'kas')}</select></label>
   <label data-j="belanja">Penyedia / toko<input name="penyedia" value="${v('penyedia')}"></label>
   <label data-j="belanja">Alamat penyedia<input name="alamat" value="${v('alamat')}"></label>
+  <label data-j="belanja" style="flex-direction:row;align-items:center;gap:8px;color:var(--tx);font-size:14px;font-weight:600"><input type="checkbox" name="siplah" value="1"${t&&t.siplah?' checked':''}> Belanja via SIPLah</label>
+  <label class="sp">No. pesanan / invoice SIPLah<input name="spno" value="${v('spno')}"></label>
+  <label class="sp">Nama mitra SIPLah<input name="spmitra" value="${v('spmitra')}"></label>
+  <label class="sp">Biaya kirim / admin (Rp) – ditambahkan ke total bila rincian barang diisi<input type="number" name="ongkir" min="0" step="any" value="${v('ongkir')}"></label>
   <label data-j="belanja">Kegiatan / komponen<select name="keg"><option value=""></option>${kegList().map(k=>`<option${k.n===(t&&t.keg)?' selected':''}>${esc(k.n)}</option>`).join('')}</select></label>
   <label class="w" data-j="belanja">Rincian barang (opsional) – satu baris per barang: nama | jumlah | satuan | harga satuan<textarea name="items" rows="3" placeholder="Semen 50 kg | 20 | sak | 65000">${v('items')}</textarea></label>
   <label>Jumlah (Rp) – otomatis dari rincian bila diisi<input type="number" name="jumlah" min="0" step="any" value="${v('jumlah')}"></label>
-  <label data-j="belanja">Tarif PPN<select id="tppn"><option value="0">Tanpa PPN</option><option value="11">11%</option></select></label>
-  <label data-j="belanja">Tarif PPh<select id="tpph"><option value="0">Tanpa PPh</option><option>0.5</option><option>1.5</option><option>2</option><option>3</option><option>4</option></select></label>
-  <label data-j="belanja">Jenis PPh<select name="jpph">${sel('jpph',{'PPh 21':'PPh 21','PPh 22':'PPh 22','PPh 23':'PPh 23','PPh 4(2)':'PPh Final 4(2)'},'PPh 22')}</select></label>
-  <label data-j="belanja">PPN dipungut (Rp)<input type="number" name="ppn" min="0" step="any" value="${v('ppn')}"></label>
-  <label data-j="belanja">PPh dipungut (Rp)<input type="number" name="pph" min="0" step="any" value="${v('pph')}"></label>
-  <label data-j="setorpajak">Jenis pajak disetor<select name="pj">${sel('pj',{PPN:'PPN','PPh 21':'PPh 21','PPh 22':'PPh 22','PPh 23':'PPh 23','PPh 4(2)':'PPh Final 4(2)'},'PPN')}</select></label>
+  <label class="np" data-j="belanja">Tarif PPN efektif (%)<input type="number" id="tppn" min="0" step="any" value="${S.id.tppn==null?11:S.id.tppn}"></label>
+  <label class="np" data-j="belanja">Tarif PPh (%)<input type="number" id="tpph" min="0" step="any" value="${S.id.tpph==null?0:S.id.tpph}"></label>
+  <label class="np" data-j="belanja">Jenis PPh<input name="jpph" list="jp" value="${t?esc(t.jpph):'PPh 22'}"></label>
+  <label class="np" data-j="belanja">PPN dipungut (Rp)<input type="number" name="ppn" min="0" step="any" value="${v('ppn')}"></label>
+  <label class="np" data-j="belanja">PPh dipungut (Rp)<input type="number" name="pph" min="0" step="any" value="${v('pph')}"></label>
+  <label data-j="setorpajak">Jenis pajak disetor<input name="pj" list="jp" value="${t?esc(t.pj):'PPN'}"><datalist id="jp"><option>PPN<option>PPh 21<option>PPh 22<option>PPh 23<option>PPh 4(2)</datalist></label>
   <label data-j="setorpajak">NTPN<input name="ntpn" value="${v('ntpn')}"></label>
-  <div class="bar w" style="grid-column:1/-1"><button class="pri">Simpan transaksi</button><button type="button" class="sec" data-a="hit" data-j="belanja">Hitung pajak dari tarif</button>${editId?'<button type="button" class="sec" data-a="bt">Batal</button>':''}</div>
+  <div class="bar w" style="grid-column:1/-1"><button class="pri">Simpan transaksi</button><button type="button" data-a="hit" class="sec np" data-j="belanja">Hitung pajak dari tarif (harga sudah termasuk pajak)</button>${editId?'<button type="button" class="sec" data-a="bt">Batal</button>':''}</div>
   </form></details>
   <div class="card"><b>Transaksi ${BLN[mon]} ${S.id.tahun}</b><div class="scroll"><table class="l" style="margin-top:8px"><tr><th>Tanggal</th><th>No. bukti</th><th>Jenis</th><th>Uraian</th><th class="r">Jumlah</th><th></th></tr>
-  ${list.map(x=>`<tr><td>${fd(x.tgl)}</td><td>${esc(x.no)}</td><td>${JN[x.jenis]}${x.jenis==='belanja'||x.jenis==='setorpajak'?' ('+(x.via==='bank'?'bank':'tunai')+')':''}</td><td>${esc(x.uraian)}</td><td class="r">${rp(+x.jumlah||0)}</td><td class="r"><span style="display:inline-flex;gap:4px">${x.jenis==='belanja'?`<button class="sm" data-a="nota" data-id="${x.id}">Cetak nota</button>`:''}<button class="sm" data-a="ubah" data-id="${x.id}">Ubah</button><button class="sm d" data-a="hapus" data-id="${x.id}">${arm===x.id?'Yakin hapus?':'Hapus'}</button></span></td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada transaksi bulan ini. Mulai dengan mencatat penerimaan dana bantuan (masuk ke bank).</td></tr>'}</table></div></div>`;
+  ${list.map(x=>`<tr><td>${fd(x.tgl)}</td><td>${esc(x.no)}</td><td>${JN[x.jenis]}${x.jenis==='belanja'||x.jenis==='setorpajak'?' ('+(x.via==='bank'?'bank':'tunai')+')':''}</td><td>${x.siplah?'<b>[SIPLah]</b> ':''}${esc(x.uraian)}</td><td class="r">${rp(+x.jumlah||0)}</td><td class="r"><span style="display:inline-flex;gap:4px">${x.jenis==='belanja'?`<button class="sm" data-a="nota" data-id="${x.id}">${x.siplah?'Cetak bukti SIPLah':'Cetak nota'}</button>`:''}<button class="sm" data-a="ubah" data-id="${x.id}">Ubah</button><button class="sm d" data-a="hapus" data-id="${x.id}">${arm===x.id?'Yakin hapus?':'Hapus'}</button></span></td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada transaksi bulan ini. Mulai dengan mencatat penerimaan dana bantuan (masuk ke bank).</td></tr>'}</table></div></div>`;
 }
 function setView(){
   const F2=[['sekolah','Nama satuan pendidikan'],['npsn','NPSN'],['kab','Kabupaten/Kota'],['kota','Tempat penandatanganan'],['tahun','Tahun anggaran','number'],['pagu','Pagu bantuan (Rp)','number'],['kepsek','Kepala sekolah'],['nipk','NIP kepala sekolah'],['bend','Bendahara'],['nipb','NIP bendahara'],['ketua','Ketua P2SP'],['keg','Daftar kegiatan dan anggaran – satu baris: nama | anggaran','area']];
@@ -268,10 +297,10 @@ function R(){
   $('#view').innerHTML=tab==='tx'?txView():tab==='set'?setView():tab==='keg'?kegView():tab==='ba'?baView():`<div class="bar"><button class="pri" data-a="pl">Cetak ${NM[tab].toLowerCase()} ${BLN[mon]}</button></div><div class="sheet">${ledger(tab)}</div>`;
   toggle();
 }
-function toggle(){const f=$('#f');if(!f)return;const j=f.jenis.value;f.querySelectorAll('[data-j]').forEach(e=>e.style.display=e.dataset.j.split(' ').includes(j)?'':'none')}
+function toggle(){const f=$('#f');if(!f)return;const j=f.jenis.value;f.querySelectorAll('[data-j]').forEach(e=>e.style.display=e.dataset.j.split(' ').includes(j)?'':'none');const sp=j==='belanja'&&f.siplah.checked;f.querySelectorAll('.np').forEach(e=>{if(sp)e.style.display='none'});f.querySelectorAll('.sp').forEach(e=>e.style.display=sp?'':'none')}
 function hitung(){
   const f=$('#f');let tot=items(f.items.value).reduce((a,x)=>a+x.j,0)||+f.jumlah.value||0;
-  const tp=+$('#tppn').value,th=+$('#tpph').value;
+  const tp=+$('#tppn').value||0,th=+$('#tpph').value||0;
   const ppn=tp?Math.round(tot*tp/(100+tp)):0,dpp=tot-ppn;
   f.ppn.value=ppn||'';f.pph.value=th?Math.round(dpp*th/100):'';
 }
@@ -287,22 +316,29 @@ document.addEventListener('click',e=>{
   else if(a==='pk')pr(kegDoc(),'landscape');
   else if(a==='pb')pr(baDoc(),'portrait');
   else if(a==='tarik')pull(true);
-  else if(a==='kirim'){clearTimeout(tm);pushNow()}
+  else if(a==='kirim'){clearTimeout(tm);pushNow(true)}
   else if(a==='hit')hitung();
   else if(a==='pul'){try{const j=JSON.parse($('#bk').value);if(!j.tx||!j.id)throw 0;S=j;save();R()}catch(x){alert('Data cadangan tidak valid.')}}
   else if(a==='rst'){if(arm==='rst'){S=JSON.parse(JSON.stringify(DEF));arm=null;save();R()}else{arm='rst';b.textContent='Yakin hapus semua?'}}
 });
-document.addEventListener('change',e=>{if(e.target.name==='jenis')toggle()});
-document.addEventListener('input',e=>{const f=e.target.form;if(f&&f.id==='sc'){cfg[e.target.name]=e.target.value.trim();try{localStorage.setItem(SK,JSON.stringify(cfg))}catch(x){}}if(f&&f.id==='bf'){S.ba[e.target.name]=e.target.type==='number'?(+e.target.value||0):e.target.value;save();$('#bap').innerHTML=baDoc();return}if(f&&f.id==='si'){const k=e.target.name;S.id[k]=e.target.type==='number'?(+e.target.value||0):e.target.value;save()}});
+document.addEventListener('change',e=>{if(e.target.name==='jenis'||e.target.name==='siplah')toggle()});
+document.addEventListener('input',e=>{const f=e.target.form;if(e.target.id==='tppn'||e.target.id==='tpph'){S.id[e.target.id]=+e.target.value||0;save()}if(f&&f.id==='sc'){cfg[e.target.name]=e.target.value.trim();try{localStorage.setItem(SK,JSON.stringify(cfg))}catch(x){}}if(f&&f.id==='bf'){S.ba[e.target.name]=e.target.type==='number'?(+e.target.value||0):e.target.value;save();$('#bap').innerHTML=baDoc();return}if(f&&f.id==='si'){const k=e.target.name;S.id[k]=e.target.type==='number'?(+e.target.value||0):e.target.value;save()}});
 document.addEventListener('submit',e=>{
   if(e.target.id!=='f')return;e.preventDefault();
   const o=Object.fromEntries(new FormData(e.target).entries());
-  if(o.jenis==='belanja'){const s=items(o.items).reduce((a,x)=>a+x.j,0);if(s>0)o.jumlah=s}
+  if(o.jenis==='belanja'&&!o.siplah){const s=items(o.items).reduce((a,x)=>a+x.j,0);if(s>0)o.jumlah=s}
+  o.siplah=o.jenis==='belanja'&&o.siplah?'1':'';
+  if(o.siplah){
+    const s=items(o.items).reduce((a,x)=>a+x.j,0);if(s>0)o.jumlah=s+(+o.ongkir||0);
+    o.ppn='';o.pph='';
+    if(o.via!=='bank'){o.via='bank';toast('Belanja SIPLah dicatat dibayar dari Bank.')}
+  }
   o.jumlah=+o.jumlah||0;
   if(!o.jumlah){alert('Isi jumlah (Rp) atau rincian barang.');return}
   if(editId){const k=S.tx.findIndex(x=>x.id===editId);o.id=editId;S.tx[k]=o;editId=null}else{o.id=Date.now();S.tx.push(o)}
   if(o.tgl)mon=Math.max(0,Math.min(11,+o.tgl.slice(5,7)-1));
   save();R();
+  toast(cfg.url?'Transaksi disimpan, mengirim ke Google Sheet…':'Transaksi disimpan di browser (Google Sheet belum terhubung)');
 });
 R();
 (function(){let d;try{d=localStorage.getItem('bendahara-dirty')}catch(e){}if(cfg.url){d?pushNow():pull()}})();
