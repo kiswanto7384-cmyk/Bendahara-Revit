@@ -83,7 +83,7 @@ const KEY='bendahara-p2sp-v1';
 const DEF={id:{sekolah:'SDN 165 Tanjung Jabung Barat',npsn:'10501916',kab:'Tanjung Jabung Barat',kota:'',tahun:2026,pagu:371796163,kepsek:'',nipk:'',bend:'',nipb:'',ketua:'',keg:'Persiapan dan perizinan | 0\nBahan bangunan | 0\nUpah tenaga kerja | 0\nPerabot dan peralatan | 0\nBiaya lain-lain | 0'},tx:[],ba:{}};
 function load(){try{const j=JSON.parse(localStorage.getItem(KEY));if(j&&j.tx&&j.id){j.id=Object.assign({},DEF.id,j.id);j.ba=j.ba||{};return j}}catch(e){}return JSON.parse(JSON.stringify(DEF))}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}push()}
-let S=load(),mon=new Date().getMonth(),tab='tx',editId=null,arm=null;
+let lastId=null,S=load(),mon=new Date().getMonth(),tab='tx',editId=null,arm=null;
 
 /* ---------- pembukuan ---------- */
 function rows(){
@@ -255,7 +255,9 @@ function txView(){
   const v=(k,d)=>esc(t?t[k]:(d==null?'':d));
   const sel=(k,o,d)=>Object.keys(o).map(x=>`<option value="${x}"${(t?t[k]:d)===x?' selected':''}>${o[x]}</option>`).join('');
   const list=S.tx.filter(x=>x.tgl.slice(0,7)===key).sort((a,b)=>a.tgl<b.tgl?-1:a.tgl>b.tgl?1:a.id-b.id);
-  return `<details class="card"${editId||!list.length?' open':''}><summary><b>${editId?'Ubah transaksi':'Catat transaksi baru'}</b></summary><form id="f" style="margin-top:10px">
+  const ln=lastId&&S.tx.find(x=>x.id===lastId&&x.jenis==='belanja');
+  const banner=ln?`<div class="card" style="border-color:var(--pr)"><b>Belanja tersimpan:</b> ${esc(ln.uraian)} (Rp ${rp(+ln.jumlah||0)})<div class="bar"><button class="pri" data-a="nota" data-id="${ln.id}">${ln.siplah?'Cetak bukti SIPLah':'Cetak nota / invoice'}</button></div></div>`:'';
+  return banner+`<details class="card"${editId||!list.length?' open':''}><summary><b>${editId?'Ubah transaksi':'Catat transaksi baru'}</b></summary><form id="f" style="margin-top:10px">
   <label>Jenis transaksi<select name="jenis">${sel('jenis',JN,'belanja')}</select></label>
   <label>Tanggal<input type="date" name="tgl" required value="${t?t.tgl:(today.slice(0,7)===key?today:key+'-01')}"></label>
   <label>No. bukti<input name="no" value="${v('no')}"></label>
@@ -279,8 +281,8 @@ function txView(){
   <label data-j="setorpajak">NTPN<input name="ntpn" value="${v('ntpn')}"></label>
   <div class="bar w" style="grid-column:1/-1"><button class="pri">Simpan transaksi</button><button type="button" data-a="hit" class="sec np" data-j="belanja">Hitung pajak dari tarif (harga sudah termasuk pajak)</button>${editId?'<button type="button" class="sec" data-a="bt">Batal</button>':''}</div>
   </form></details>
-  <div class="card"><b>Transaksi ${BLN[mon]} ${S.id.tahun}</b><div class="scroll"><table class="l" style="margin-top:8px"><tr><th>Tanggal</th><th>No. bukti</th><th>Jenis</th><th>Uraian</th><th class="r">Jumlah</th><th></th></tr>
-  ${list.map(x=>`<tr><td>${fd(x.tgl)}</td><td>${esc(x.no)}</td><td>${JN[x.jenis]}${x.jenis==='belanja'||x.jenis==='setorpajak'?' ('+(x.via==='bank'?'bank':'tunai')+')':''}</td><td>${x.siplah?'<b>[SIPLah]</b> ':''}${esc(x.uraian)}</td><td class="r">${rp(+x.jumlah||0)}</td><td class="r"><span style="display:inline-flex;gap:4px">${x.jenis==='belanja'?`<button class="sm" data-a="nota" data-id="${x.id}">${x.siplah?'Cetak bukti SIPLah':'Cetak nota'}</button>`:''}<button class="sm" data-a="ubah" data-id="${x.id}">Ubah</button><button class="sm d" data-a="hapus" data-id="${x.id}">${arm===x.id?'Yakin hapus?':'Hapus'}</button></span></td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada transaksi bulan ini. Mulai dengan mencatat penerimaan dana bantuan (masuk ke bank).</td></tr>'}</table></div></div>`;
+  <div class="card"><b>Transaksi ${BLN[mon]} ${S.id.tahun}</b><div class="scroll"><table class="l" style="margin-top:8px"><tr><th>Aksi</th><th>Tanggal</th><th>No. bukti</th><th>Jenis</th><th>Uraian</th><th class="r">Jumlah</th></tr>
+  ${list.map(x=>`<tr><td><span style="display:inline-flex;gap:4px;flex-wrap:wrap">${x.jenis==='belanja'?`<button class="sm" data-a="nota" data-id="${x.id}">${x.siplah?'Cetak bukti SIPLah':'Cetak nota'}</button>`:''}<button class="sm" data-a="ubah" data-id="${x.id}">Ubah</button><button class="sm d" data-a="hapus" data-id="${x.id}">${arm===x.id?'Yakin hapus?':'Hapus'}</button></span></td><td>${fd(x.tgl)}</td><td>${esc(x.no)}</td><td>${JN[x.jenis]}${x.jenis==='belanja'||x.jenis==='setorpajak'?' ('+(x.via==='bank'?'bank':'tunai')+')':''}</td><td>${x.siplah?'<b>[SIPLah]</b> ':''}${esc(x.uraian)}</td><td class="r">${rp(+x.jumlah||0)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada transaksi bulan ini. Mulai dengan mencatat penerimaan dana bantuan (masuk ke bank).</td></tr>'}</table></div></div>`;
 }
 function setView(){
   const F2=[['sekolah','Nama satuan pendidikan'],['npsn','NPSN'],['kab','Kabupaten/Kota'],['kota','Tempat penandatanganan'],['tahun','Tahun anggaran','number'],['pagu','Pagu bantuan (Rp)','number'],['kepsek','Kepala sekolah'],['nipk','NIP kepala sekolah'],['bend','Bendahara'],['nipb','NIP bendahara'],['ketua','Ketua P2SP'],['keg','Daftar kegiatan dan anggaran – satu baris: nama | anggaran','area']];
@@ -306,8 +308,8 @@ function hitung(){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a,id=+b.dataset.id;
-  if(a==='m'){mon=+b.dataset.i;editId=null;R()}
-  else if(a==='t'){tab=b.dataset.t;editId=null;R()}
+  if(a==='m'){mon=+b.dataset.i;editId=null;lastId=null;R()}
+  else if(a==='t'){tab=b.dataset.t;editId=null;lastId=null;R()}
   else if(a==='pl')pr(ledger(tab),'landscape');
   else if(a==='nota')pr(nota(S.tx.find(x=>x.id===id)),'portrait');
   else if(a==='ubah'){editId=id;R();$('#f').scrollIntoView()}
@@ -337,6 +339,7 @@ document.addEventListener('submit',e=>{
   if(!o.jumlah){alert('Isi jumlah (Rp) atau rincian barang.');return}
   if(editId){const k=S.tx.findIndex(x=>x.id===editId);o.id=editId;S.tx[k]=o;editId=null}else{o.id=Date.now();S.tx.push(o)}
   if(o.tgl)mon=Math.max(0,Math.min(11,+o.tgl.slice(5,7)-1));
+  lastId=o.jenis==='belanja'?o.id:null;
   save();R();
   toast(cfg.url?'Transaksi disimpan, mengirim ke Google Sheet…':'Transaksi disimpan di browser (Google Sheet belum terhubung)');
 });
