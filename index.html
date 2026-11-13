@@ -40,6 +40,8 @@ table.l th{background:var(--pr2)}
 .r{text-align:right!important;white-space:nowrap}
 .empty{color:var(--mu);padding:14px;text-align:center}
 .sheet{background:#fff;color:#000;border-radius:6px;padding:14px;overflow-x:auto}
+.cb{width:30px;height:30px;border:1px solid var(--ln);background:var(--sf);color:var(--tx);border-radius:5px;font:700 14px inherit;cursor:pointer}.cb.pd{background:var(--pr2);color:var(--pr);border-color:var(--pr)}
+.doc .t.sm th,.doc .t.sm td{padding:2px 1px;font-size:8px;text-align:center}.doc .t.sm td.nm{text-align:left;padding-left:3px;white-space:nowrap}
 #pa{display:none}
 .doc{color:#000;background:#fff;font:11px/1.4 'IBM Plex Sans',Arial,sans-serif}
 .doc h2{text-align:center;margin:0;font-size:15px;letter-spacing:.3px}
@@ -80,9 +82,11 @@ const BLN=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','S
 const JN={terima:'Penerimaan dana bantuan',tarik:'Tarik tunai dari bank',setor:'Setor tunai ke bank',belanja:'Belanja',setorpajak:'Setor pajak',bunga:'Jasa giro / bunga bank',admin:'Biaya admin / pajak bunga bank'};
 const NM={bku:'BUKU KAS UMUM',bpk:'BUKU PEMBANTU KAS TUNAI',bank:'BUKU BANK',pajak:'BUKU PEMBANTU PAJAK'};
 const KEY='bendahara-p2sp-v1';
-const DEF={id:{sekolah:'SDN 165 Tanjung Jabung Barat',npsn:'10501916',kab:'Tanjung Jabung Barat',kota:'',tahun:2026,pagu:371796163,kepsek:'',nipk:'',bend:'',nipb:'',ketua:'',keg:'Persiapan dan perizinan | 0\nBahan bangunan | 0\nUpah tenaga kerja | 0\nPerabot dan peralatan | 0\nBiaya lain-lain | 0'},tx:[],ba:{}};
-function load(){try{const j=JSON.parse(localStorage.getItem(KEY));if(j&&j.tx&&j.id){j.id=Object.assign({},DEF.id,j.id);j.ba=j.ba||{};return j}}catch(e){}return JSON.parse(JSON.stringify(DEF))}
+const DEF={id:{sekolah:'SDN 165 Tanjung Jabung Barat',npsn:'10501916',kab:'Tanjung Jabung Barat',kota:'',tahun:2026,pagu:371796163,kepsek:'',nipk:'',bend:'',nipb:'',ketua:'',keg:'Persiapan dan perizinan | 0\nBahan bangunan | 0\nUpah tenaga kerja | 0\nPerabot dan peralatan | 0\nBiaya lain-lain | 0'},tx:[],ba:{},pk:[],ab:{},pd:{}};
+function load(){try{const j=JSON.parse(localStorage.getItem(KEY));if(j&&j.tx&&j.id)return fix(j)}catch(e){}return JSON.parse(JSON.stringify(DEF))}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}push()}
+function fix(j){j.id=Object.assign({},DEF.id,j.id);j.ba=j.ba||{};j.pk=j.pk||[];j.ab=j.ab||{};j.pd=j.pd||{};return j}
+let abMode='minggu',abWeek='',editW=null,payD='';
 let lastId=null,S=load(),mon=new Date().getMonth(),tab='tx',editId=null,arm=null;
 
 /* ---------- pembukuan ---------- */
@@ -200,7 +204,7 @@ function push(){if(!cfg.url)return;try{localStorage.setItem('bendahara-dirty','1
 async function pull(manual){
   if(!cfg.url){if(manual)sMsg('Isi Alamat Web App dan Token dulu di kartu Penyimpanan Google Sheet.',true);return}
   try{sMsg('Mengambil data dari Google Sheet…');const r=await call({action:'load'});if(r.error)throw new Error(r.error);
-    if(r.data&&r.data.id){r.data.id=Object.assign({},DEF.id,r.data.id);r.data.ba=r.data.ba||{};S=r.data;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}sMsg('Data dimuat dari Google Sheet.')}
+    if(r.data&&r.data.id){S=fix(r.data);try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}sMsg('Data dimuat dari Google Sheet.')}
     else{sMsg('Sheet masih kosong, data di browser dikirim.');pushNow()}
     R()}catch(e){sMsg('Gagal mengambil data: '+e.message,true)}
 }
@@ -241,6 +245,111 @@ function baView(){
   const b=S.ba||{},tg=b.tgl||new Date().toISOString().slice(0,10);
   return `<div class="card"><form id="bf"><label>Tanggal pemeriksaan<input type="date" name="tgl" value="${tg}"></label><label>Uang tunai hasil hitung fisik (Rp)<input type="number" name="fisik" min="0" step="any" value="${b.fisik||''}"></label><label>Saldo rekening koran (Rp)<input type="number" name="rek" min="0" step="any" value="${b.rek||''}"></label></form><div class="bar"><button class="pri" data-a="pb">Cetak berita acara</button></div></div><div class="sheet" id="bap">${baDoc()}</div>`;
 }
+/* ---------- rekap upah harian (batas tidak dipotong PPh 21) ---------- */
+const BM=4500000,BH=450000,BT=54000000,norm=s=>String(s||'').trim().toLowerCase();
+function upahRows(key){
+  const th=key.slice(0,4),m={};
+  S.tx.filter(t=>t.jenis==='belanja'&&t.upah&&t.tgl.slice(0,4)===th&&t.tgl.slice(0,7)<=key).forEach(t=>{
+    const k=norm(t.pekerja)||'(tanpa nama)',o=m[k]=m[k]||{n:t.pekerja||'(tanpa nama)',npwp:false,hari:0,bln:0,thn:0,mx:0},j=+t.jumlah||0;
+    o.thn+=j;o.npwp=t.npwp==='ada';
+    if(t.tgl.slice(0,7)===key){o.hari+=+t.hari||0;o.bln+=j;o.mx=Math.max(o.mx,+t.uph||0)}
+  });
+  return Object.values(m).filter(o=>o.bln>0).sort((a,b)=>a.n.localeCompare(b.n));
+}
+function stat(o){
+  const nw=o.npwp?'':' (tanpa NPWP: tarif +20%)';
+  if(o.mx>BH)return['bad','Upah per hari melebihi Rp450.000, konsultasikan pemotongan PPh 21'+nw];
+  if(o.bln>BM)return['bad','Melewati batas bulanan Rp4.500.000, konsultasikan pemotongan PPh 21'+nw];
+  if(o.thn>BT)return['bad','Melewati batas tahunan Rp54.000.000, konsultasikan pemotongan PPh 21'+nw];
+  if(o.bln>=BM*0.8)return['warn','Mendekati batas, sisa Rp '+rp(BM-o.bln)+' bulan ini'];
+  return['ok','Aman, tidak dipotong. Sisa batas bulan ini Rp '+rp(BM-o.bln)];
+}
+const SC={ok:'#1a6b34',warn:'#9a6700',bad:'#b3261e'};
+function upv(){
+  const f=$('#f'),e=$('#upv');if(!f||!e||!f.upah.checked)return;
+  const nm=norm(f.pekerja.value),key=(f.tgl.value||'').slice(0,7),th=key.slice(0,4);let b=0,t=0;
+  S.tx.filter(x=>x.jenis==='belanja'&&x.upah&&x.id!==editId&&norm(x.pekerja)===nm&&x.tgl.slice(0,4)===th&&x.tgl.slice(0,7)<=key).forEach(x=>{const j=+x.jumlah||0;t+=j;if(x.tgl.slice(0,7)===key)b+=j});
+  const u=+f.uph.value||0,j=(+f.hari.value||0)*u;b+=j;t+=j;if(j>0)f.jumlah.value=j;
+  const s=stat({mx:u,bln:b,thn:t,npwp:f.npwp.value==='ada'});
+  e.textContent='Kumulatif bulan ini '+(f.pekerja.value||'pekerja')+': Rp '+rp(b)+' dari batas Rp '+rp(BM)+'. '+s[1];e.style.color=SC[s[0]];
+}
+function upahDoc(){
+  const key=mkey(),L=upahRows(key),i=S.id;
+  return `<div class="doc"><h2>REKAPITULASI UPAH HARIAN</h2><p class="c">Bantuan Pemerintah Program Revitalisasi Satuan Pendidikan · ${BLN[mon]} ${i.tahun}</p>
+  <table class="idt"><tr><td width="130">Satuan pendidikan</td><td>: ${esc(i.sekolah)}</td></tr><tr><td>NPSN</td><td>: ${esc(i.npsn)}</td></tr></table>
+  <table class="t" style="margin-top:8px"><tr><th>No</th><th>Nama pekerja</th><th>NPWP</th><th>Hari kerja</th><th>Upah/hari tertinggi</th><th>Upah bulan ini</th><th>Kumulatif tahun</th><th>Status pemotongan</th></tr>
+  ${L.map((o,k)=>{const s=stat(o);return `<tr><td class="r">${k+1}</td><td>${esc(o.n)}</td><td>${o.npwp?'Ada':'Tidak ada'}</td><td class="r">${o.hari}</td><td class="r">${rp(o.mx)}</td><td class="r">${rp(o.bln)}</td><td class="r">${rp(o.thn)}</td><td style="color:${SC[s[0]]}">${s[1]}</td></tr>`}).join('')||'<tr><td colspan="8">Belum ada upah harian bulan ini. Catat lewat Transaksi, jenis Belanja, centang "Upah harian".</td></tr>'}</table>
+  <p style="margin-top:6px">Dasar batas tidak dipotong PPh 21 (Buku Saku Perpajakan Program Revitalisasi Sekolah Dasar 2026): upah maksimal Rp450.000 per hari, kumulatif Rp4.500.000 per bulan, dan Rp54.000.000 per tahun. Pekerja tanpa NPWP dikenai tarif 20% lebih tinggi bila terkena pemotongan.</p>${ttd()}</div>`;
+}
+const upahView=()=>`<div class="bar"><button class="pri" data-a="pu">Cetak rekap upah ${BLN[mon]}</button></div><p class="sub">Terisi otomatis dari transaksi Belanja yang dicentang "Upah harian tukang / pekerja".</p><div class="sheet">${upahDoc()}</div>`;
+/* ---------- pekerja, absensi, upah otomatis ---------- */
+function pad(n){return String(n).padStart(2,'0')}
+function dstr(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+function addD(s,n){const d=new Date(s+'T00:00:00');d.setDate(d.getDate()+n);return dstr(d)}
+function monday(s){const d=new Date(s+'T00:00:00');d.setDate(d.getDate()-(d.getDay()+6)%7);return dstr(d)}
+function wkStart(){if(!abWeek)abWeek=monday(dstr(new Date()));return abWeek}
+const WH=['Sen','Sel','Rab','Kam','Jum','Sab','Min'];
+function absDates(){if(abMode==='minggu'){const a=wkStart();return[0,1,2,3,4,5,6].map(i=>addD(a,i))}const y=S.id.tahun,n=new Date(y,mon+1,0).getDate();return Array.from({length:n},(_,i)=>y+'-'+pad(mon+1)+'-'+pad(i+1))}
+function wDays(id,a,b){let s=0;for(const k in S.ab){const p=k.split('|');if(p[0]===String(id)&&p[1]>=a&&p[1]<=b)s+=S.ab[k]}return s}
+function absRows(ds){
+  const key=abMode==='bulan'?mkey():addD(wkStart(),3).slice(0,7),th=key.slice(0,4);
+  return S.pk.map(w=>{
+    let hari=0,byr=0;ds.forEach(d=>{const v=S.ab[w.id+'|'+d]||0;hari+=v;if(v&&S.pd[w.id+'|'+d])byr+=v});
+    const u=+w.upah||0,st=stat({mx:u,bln:wDays(w.id,key+'-01',key+'-31')*u,thn:wDays(w.id,th+'-01-01',th+'-12-31')*u,npwp:w.npwp==='ada'});
+    return{w,hari,upah:hari*u,belum:(hari-byr)*u,st};
+  });
+}
+function bayar(){
+  const ds=absDates(),a=ds[0],b=ds[ds.length-1],wk=abMode==='minggu',tg=payD||(wk?addD(wkStart(),5):b);
+  const kl=kegList().find(k=>/upah/i.test(k.n)),id0=Date.now();let n=0,tot=0;
+  S.pk.forEach(w=>{
+    const days=ds.filter(d=>S.ab[w.id+'|'+d]&&!S.pd[w.id+'|'+d]);
+    const hari=days.reduce((s,d)=>s+S.ab[w.id+'|'+d],0);if(!hari)return;
+    const u=+w.upah||0,j=Math.round(hari*u),id=id0+(n++);
+    S.tx.push({id,jenis:'belanja',tgl:tg,no:'',uraian:'Upah '+(wk?'mingguan '+fd(a)+' s.d. '+fd(b):'bulanan '+BLN[mon]+' '+S.id.tahun)+' – '+w.nama,via:'kas',penyedia:w.nama,alamat:'',items:'Upah '+w.nama+' | '+hari+' | hari | '+u,jumlah:j,ppn:'',pph:'',jpph:'PPh 21',keg:kl?kl.n:'',upah:'1',pekerja:w.nama,hari,uph:u,npwp:w.npwp,siplah:''});
+    days.forEach(d=>{S.pd[w.id+'|'+d]=id});tot+=j;
+  });
+  if(!n){toast('Tidak ada hari baru yang perlu dibayar.');return}
+  save();R();
+  const bad=upahRows(tg.slice(0,7)).some(o=>stat(o)[0]==='bad');
+  toast('Dicatat '+n+' pembayaran upah, total Rp '+rp(tot)+'. Cek tab Transaksi untuk mencetak nota.'+(bad?' Ada pekerja melewati batas, lihat tab Rekap Upah.':''),bad);
+}
+function pkjView(){
+  const w=editW?S.pk.find(x=>x.id===editW):null,ad=w&&w.npwp==='ada';
+  return `<div class="card"><b>${w?'Ubah data pekerja':'Tambah pekerja / tukang'}</b><form id="wf" style="margin-top:10px">
+  <label>Nama<input name="nama" required value="${esc(w?w.nama:'')}"></label>
+  <label>Jabatan / keahlian<input name="jabatan" placeholder="Tukang batu" value="${esc(w?w.jabatan:'')}"></label>
+  <label>Upah per hari (Rp)<input type="number" name="upah" required min="0" step="any" value="${w?w.upah:''}"></label>
+  <label>NPWP<select name="npwp"><option value="tidak"${ad?'':' selected'}>Tidak ada</option><option value="ada"${ad?' selected':''}>Ada</option></select></label>
+  <div class="bar" style="grid-column:1/-1"><button class="pri">Simpan</button>${w?'<button type="button" class="sec" data-a="wbt">Batal</button>':''}</div></form></div>
+  <div class="card"><b>Daftar pekerja</b><div class="scroll"><table class="l" style="margin-top:8px"><tr><th>Aksi</th><th>Nama</th><th>Jabatan</th><th class="r">Upah / hari</th><th>NPWP</th></tr>
+  ${S.pk.map(x=>`<tr><td><span style="display:inline-flex;gap:4px"><button class="sm" data-a="wedit" data-id="${x.id}">Ubah</button><button class="sm d" data-a="whapus" data-id="${x.id}">${arm==='w'+x.id?'Yakin hapus?':'Hapus'}</button></span></td><td>${esc(x.nama)}</td><td>${esc(x.jabatan)}</td><td class="r">${rp(x.upah)}${x.upah>BH?' ⚠':''}</td><td>${x.npwp==='ada'?'Ada':'Tidak ada'}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada pekerja.</td></tr>'}</table></div><p class="sub" style="margin-top:8px">Tanda ⚠ berarti upah per hari melebihi Rp450.000 (batas tidak dipotong PPh 21).</p></div>`;
+}
+function absView(){
+  if(!S.pk.length)return '<div class="card empty">Belum ada data pekerja. Tambahkan dulu di tab Pekerja.</div>';
+  const ds=absDates(),rs=absRows(ds),wk=abMode==='minggu',tg=payD||(wk?addD(wkStart(),5):ds[ds.length-1]);
+  const tot=rs.reduce((a,r)=>({h:a.h+r.hari,u:a.u+r.upah,b:a.b+r.belum}),{h:0,u:0,b:0});
+  const cell=(w,d)=>{const k=w.id+'|'+d,v=S.ab[k]||0;return `<td style="padding:2px;text-align:center"><button class="cb${S.pd[k]?' pd':''}" data-a="ab" data-w="${w.id}" data-d="${d}">${v===1?'✓':v===0.5?'½':'·'}</button></td>`};
+  const LB={ok:'Aman',warn:'Dekat batas',bad:'Lewat batas'};
+  return `<div class="card"><div class="bar"><button class="${wk?'pri':'sec'}" data-a="am" data-m="minggu">Mingguan</button><button class="${wk?'sec':'pri'}" data-a="am" data-m="bulan">Bulanan</button>
+  ${wk?`<button class="sm" data-a="aw" data-n="-7">‹ Minggu lalu</button><b style="align-self:center">${fd(ds[0])} s.d. ${fd(ds[6])}</b><button class="sm" data-a="aw" data-n="7">Minggu depan ›</button>`:`<b style="align-self:center">${BLN[mon]} ${S.id.tahun}</b>`}</div>
+  <p class="sub">Ketuk kotak untuk mengisi: ✓ hadir satu hari, ½ setengah hari, · tidak hadir. Kotak biru berarti sudah dibayar.</p>
+  <div class="scroll gs"><table class="l"><tr><th>Pekerja</th>${ds.map(d=>`<th style="text-align:center;padding:4px">${wk?WH[(new Date(d+'T00:00:00').getDay()+6)%7]+'<br>':''}${+d.slice(8)}</th>`).join('')}<th class="r">Hari</th><th class="r">Upah</th><th class="r">Belum dibayar</th><th>Batas bulan</th></tr>
+  ${rs.map(r=>`<tr><td style="white-space:nowrap"><b>${esc(r.w.nama)}</b><br><small>${esc(r.w.jabatan)} · Rp ${rp(r.w.upah)}/hari</small></td>${ds.map(d=>cell(r.w,d)).join('')}<td class="r">${r.hari}</td><td class="r">${rp(r.upah)}</td><td class="r">${rp(r.belum)}</td><td title="${esc(r.st[1])}" style="color:${SC[r.st[0]]};font-weight:600">${LB[r.st[0]]}</td></tr>`).join('')}
+  <tr><td><b>Jumlah</b></td><td colspan="${ds.length}"></td><td class="r"><b>${tot.h}</b></td><td class="r"><b>${rp(tot.u)}</b></td><td class="r"><b>${rp(tot.b)}</b></td><td></td></tr></table></div>
+  <form id="pf" style="margin-top:10px"><label>Tanggal pembayaran upah<input type="date" name="tgl" value="${tg}"></label></form>
+  <div class="bar"><button class="pri" data-a="abay">Catat pembayaran upah (hari yang belum dibayar)</button><button class="sec" data-a="apr">Cetak ${wk?'daftar hadir dan upah mingguan':'rekap absensi bulanan'}</button></div></div>`;
+}
+function absDoc(){
+  const ds=absDates(),rs=absRows(ds),wk=abMode==='minggu',i=S.id;
+  const tot=rs.reduce((a,r)=>({h:a.h+r.hari,u:a.u+r.upah}),{h:0,u:0});
+  const mk=(w,d)=>{const v=S.ab[w.id+'|'+d]||0;return v===1?'✓':v===0.5?'½':''};
+  return `<div class="doc"><h2>${wk?'DAFTAR HADIR DAN UPAH MINGGUAN':'REKAPITULASI ABSENSI DAN UPAH BULANAN'}</h2><p class="c">Bantuan Pemerintah Program Revitalisasi Satuan Pendidikan · ${wk?fd(ds[0])+' s.d. '+fd(ds[6]):BLN[mon]+' '+i.tahun}</p>
+  <table class="idt"><tr><td width="130">Satuan pendidikan</td><td>: ${esc(i.sekolah)}</td></tr><tr><td>NPSN</td><td>: ${esc(i.npsn)}</td></tr></table>
+  <table class="t${wk?'':' sm'}" style="margin-top:8px"><tr><th>No</th><th>Nama</th>${ds.map(d=>`<th>${wk?WH[(new Date(d+'T00:00:00').getDay()+6)%7]+'<br>':''}${+d.slice(8)}</th>`).join('')}<th>Hari</th><th>Upah/hari</th><th>Jumlah (Rp)</th>${wk?'<th width="90">Tanda tangan</th>':''}</tr>
+  ${rs.map((r,k)=>`<tr><td class="r">${k+1}</td><td class="nm">${esc(r.w.nama)}</td>${ds.map(d=>`<td style="text-align:center">${mk(r.w,d)}</td>`).join('')}<td class="r">${r.hari}</td><td class="r">${rp(r.w.upah)}</td><td class="r">${rp(r.upah)}</td>${wk?'<td style="height:26px"></td>':''}</tr>`).join('')}
+  <tr class="sum"><td></td><td>Jumlah</td>${ds.map(()=>'<td></td>').join('')}<td class="r">${tot.h}</td><td></td><td class="r">${rp(tot.u)}</td>${wk?'<td></td>':''}</tr></table>${ttd()}</div>`;
+}
 /* ---------- tampilan ---------- */
 function stats(){
   const a=rows(),s=k=>a.reduce((x,r)=>x+r[k],0);
@@ -266,6 +375,12 @@ function txView(){
   <label data-j="belanja">Penyedia / toko<input name="penyedia" value="${v('penyedia')}"></label>
   <label data-j="belanja">Alamat penyedia<input name="alamat" value="${v('alamat')}"></label>
   <label data-j="belanja" style="flex-direction:row;align-items:center;gap:8px;color:var(--tx);font-size:14px;font-weight:600"><input type="checkbox" name="siplah" value="1"${t&&t.siplah?' checked':''}> Belanja via SIPLah</label>
+  <label data-j="belanja" style="flex-direction:row;align-items:center;gap:8px;color:var(--tx);font-size:14px;font-weight:600"><input type="checkbox" name="upah" value="1"${t&&t.upah?' checked':''}> Upah harian tukang / pekerja</label>
+  <label class="up">Nama pekerja<input name="pekerja" value="${v('pekerja')}"></label>
+  <label class="up">Jumlah hari kerja<input type="number" name="hari" min="0" step="any" value="${v('hari')}"></label>
+  <label class="up">Upah per hari (Rp)<input type="number" name="uph" min="0" step="any" value="${v('uph')}"></label>
+  <label class="up">NPWP pekerja<select name="npwp">${sel('npwp',{ada:'Ada',tidak:'Tidak ada'},'tidak')}</select></label>
+  <div class="up" id="upv" style="grid-column:1/-1;font-weight:600"></div>
   <label class="sp">No. pesanan / invoice SIPLah<input name="spno" value="${v('spno')}"></label>
   <label class="sp">Nama mitra SIPLah<input name="spmitra" value="${v('spmitra')}"></label>
   <label class="sp">Biaya kirim / admin (Rp) – ditambahkan ke total bila rincian barang diisi<input type="number" name="ongkir" min="0" step="any" value="${v('ongkir')}"></label>
@@ -294,12 +409,12 @@ function R(){
   const i=S.id;
   $('#ident').textContent=i.sekolah+' · NPSN '+i.npsn+' · Tahun anggaran '+i.tahun;
   $('#mon').innerHTML=BLN.map((b,k)=>`<button class="chip${k===mon?' on':''}" data-a="m" data-i="${k}" title="${b}">${b.slice(0,3)}</button>`).join('');
-  $('#tabs').innerHTML=[['tx','Transaksi'],['bku','Buku Kas Umum'],['bpk','BP Kas Tunai'],['bank','Buku Bank'],['pajak','Buku Pajak'],['keg','BP Kegiatan'],['ba','BA Kas'],['set','Pengaturan']].map(t=>`<button class="tab${t[0]===tab?' on':''}${t[0]==='pajak'?' g':''}" data-a="t" data-t="${t[0]}">${t[1]}</button>`).join('');
+  $('#tabs').innerHTML=[['tx','Transaksi'],['bku','Buku Kas Umum'],['bpk','BP Kas Tunai'],['bank','Buku Bank'],['pajak','Buku Pajak'],['keg','BP Kegiatan'],['pkj','Pekerja'],['abs','Absensi'],['upah','Rekap Upah'],['ba','BA Kas'],['set','Pengaturan']].map(t=>`<button class="tab${t[0]===tab?' on':''}${t[0]==='pajak'?' g':''}" data-a="t" data-t="${t[0]}">${t[1]}</button>`).join('');
   $('#stats').innerHTML=stats();
-  $('#view').innerHTML=tab==='tx'?txView():tab==='set'?setView():tab==='keg'?kegView():tab==='ba'?baView():`<div class="bar"><button class="pri" data-a="pl">Cetak ${NM[tab].toLowerCase()} ${BLN[mon]}</button></div><div class="sheet">${ledger(tab)}</div>`;
+  $('#view').innerHTML=tab==='tx'?txView():tab==='set'?setView():tab==='keg'?kegView():tab==='upah'?upahView():tab==='pkj'?pkjView():tab==='abs'?absView():tab==='ba'?baView():`<div class="bar"><button class="pri" data-a="pl">Cetak ${NM[tab].toLowerCase()} ${BLN[mon]}</button></div><div class="sheet">${ledger(tab)}</div>`;
   toggle();
 }
-function toggle(){const f=$('#f');if(!f)return;const j=f.jenis.value;f.querySelectorAll('[data-j]').forEach(e=>e.style.display=e.dataset.j.split(' ').includes(j)?'':'none');const sp=j==='belanja'&&f.siplah.checked;f.querySelectorAll('.np').forEach(e=>{if(sp)e.style.display='none'});f.querySelectorAll('.sp').forEach(e=>e.style.display=sp?'':'none')}
+function toggle(){const f=$('#f');if(!f)return;const j=f.jenis.value;f.querySelectorAll('[data-j]').forEach(e=>e.style.display=e.dataset.j.split(' ').includes(j)?'':'none');const sp=j==='belanja'&&f.siplah.checked;f.querySelectorAll('.np').forEach(e=>{if(sp)e.style.display='none'});f.querySelectorAll('.sp').forEach(e=>e.style.display=sp?'':'none');const up=j==='belanja'&&f.upah.checked;f.querySelectorAll('.up').forEach(e=>e.style.display=up?'':'none');upv()}
 function hitung(){
   const f=$('#f');let tot=items(f.items.value).reduce((a,x)=>a+x.j,0)||+f.jumlah.value||0;
   const tp=+$('#tppn').value||0,th=+$('#tpph').value||0;
@@ -308,27 +423,40 @@ function hitung(){
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-a]');if(!b)return;const a=b.dataset.a,id=+b.dataset.id;
-  if(a==='m'){mon=+b.dataset.i;editId=null;lastId=null;R()}
+  if(a==='m'){mon=+b.dataset.i;editId=null;lastId=null;payD='';if(tab==='abs'&&abMode==='minggu')abWeek=monday(S.id.tahun+'-'+pad(mon+1)+'-01');R()}
   else if(a==='t'){tab=b.dataset.t;editId=null;lastId=null;R()}
   else if(a==='pl')pr(ledger(tab),'landscape');
   else if(a==='nota')pr(nota(S.tx.find(x=>x.id===id)),'portrait');
   else if(a==='ubah'){editId=id;R();$('#f').scrollIntoView()}
   else if(a==='bt'){editId=null;R()}
-  else if(a==='hapus'){if(arm===id){S.tx=S.tx.filter(x=>x.id!==id);arm=null;save()}else arm=id;R()}
+  else if(a==='hapus'){if(arm===id){S.tx=S.tx.filter(x=>x.id!==id);Object.keys(S.pd).forEach(k=>{if(S.pd[k]===id)delete S.pd[k]});arm=null;save()}else arm=id;R()}
   else if(a==='pk')pr(kegDoc(),'landscape');
+  else if(a==='ab'){const k=b.dataset.w+'|'+b.dataset.d;if(S.pd[k]){toast('Hari ini sudah dibayar. Hapus transaksi pembayarannya dulu bila ingin mengubah.',true);return}const v=S.ab[k]||0,n=v===0?1:v===1?0.5:0;if(n)S.ab[k]=n;else delete S.ab[k];const sc=$('.gs'),x=sc?sc.scrollLeft:0,y=window.scrollY;save();R();const s2=$('.gs');if(s2)s2.scrollLeft=x;window.scrollTo(0,y)}
+  else if(a==='am'){abMode=b.dataset.m;payD='';R()}
+  else if(a==='aw'){abWeek=addD(wkStart(),+b.dataset.n);mon=+addD(abWeek,3).slice(5,7)-1;payD='';R()}
+  else if(a==='abay')bayar();
+  else if(a==='apr')pr(absDoc(),abMode==='bulan'?'landscape':'portrait');
+  else if(a==='wedit'){editW=id;R();window.scrollTo(0,0)}
+  else if(a==='wbt'){editW=null;R()}
+  else if(a==='whapus'){if(arm==='w'+id){S.pk=S.pk.filter(x=>x.id!==id);arm=null;save()}else arm='w'+id;R()}
+  else if(a==='pu')pr(upahDoc(),'portrait');
   else if(a==='pb')pr(baDoc(),'portrait');
   else if(a==='tarik')pull(true);
   else if(a==='kirim'){clearTimeout(tm);pushNow(true)}
   else if(a==='hit')hitung();
-  else if(a==='pul'){try{const j=JSON.parse($('#bk').value);if(!j.tx||!j.id)throw 0;S=j;save();R()}catch(x){alert('Data cadangan tidak valid.')}}
+  else if(a==='pul'){try{const j=JSON.parse($('#bk').value);if(!j.tx||!j.id)throw 0;S=fix(j);save();R()}catch(x){alert('Data cadangan tidak valid.')}}
   else if(a==='rst'){if(arm==='rst'){S=JSON.parse(JSON.stringify(DEF));arm=null;save();R()}else{arm='rst';b.textContent='Yakin hapus semua?'}}
 });
-document.addEventListener('change',e=>{if(e.target.name==='jenis'||e.target.name==='siplah')toggle()});
-document.addEventListener('input',e=>{const f=e.target.form;if(e.target.id==='tppn'||e.target.id==='tpph'){S.id[e.target.id]=+e.target.value||0;save()}if(f&&f.id==='sc'){cfg[e.target.name]=e.target.value.trim();try{localStorage.setItem(SK,JSON.stringify(cfg))}catch(x){}}if(f&&f.id==='bf'){S.ba[e.target.name]=e.target.type==='number'?(+e.target.value||0):e.target.value;save();$('#bap').innerHTML=baDoc();return}if(f&&f.id==='si'){const k=e.target.name;S.id[k]=e.target.type==='number'?(+e.target.value||0):e.target.value;save()}});
+document.addEventListener('change',e=>{if(e.target.name==='jenis'||e.target.name==='siplah'||e.target.name==='upah')toggle()});
+document.addEventListener('input',e=>{const f=e.target.form;if(e.target.id==='tppn'||e.target.id==='tpph'){S.id[e.target.id]=+e.target.value||0;save()}if(f&&f.id==='f')upv();if(f&&f.id==='pf'){payD=e.target.value;return}if(f&&f.id==='sc'){cfg[e.target.name]=e.target.value.trim();try{localStorage.setItem(SK,JSON.stringify(cfg))}catch(x){}}if(f&&f.id==='bf'){S.ba[e.target.name]=e.target.type==='number'?(+e.target.value||0):e.target.value;save();$('#bap').innerHTML=baDoc();return}if(f&&f.id==='si'){const k=e.target.name;S.id[k]=e.target.type==='number'?(+e.target.value||0):e.target.value;save()}});
 document.addEventListener('submit',e=>{
+  if(e.target.id==='wf'){e.preventDefault();const o=Object.fromEntries(new FormData(e.target).entries());o.upah=+o.upah||0;if(editW){Object.assign(S.pk.find(x=>x.id===editW),o);editW=null}else{o.id=Date.now();S.pk.push(o)}save();R();toast('Data pekerja disimpan.');return}
+  if(e.target.id==='pf'){e.preventDefault();return}
   if(e.target.id!=='f')return;e.preventDefault();
   const o=Object.fromEntries(new FormData(e.target).entries());
   if(o.jenis==='belanja'&&!o.siplah){const s=items(o.items).reduce((a,x)=>a+x.j,0);if(s>0)o.jumlah=s}
+  o.upah=o.jenis==='belanja'&&o.upah?'1':'';
+  if(o.upah){o.siplah='';const hr=+o.hari||0,up=+o.uph||0;if(!hr||!up){alert('Isi jumlah hari kerja dan upah per hari.');return}o.jumlah=hr*up;o.items='Upah '+(o.pekerja||'')+' | '+hr+' | hari | '+up;if(!o.penyedia)o.penyedia=o.pekerja}
   o.siplah=o.jenis==='belanja'&&o.siplah?'1':'';
   if(o.siplah){
     const s=items(o.items).reduce((a,x)=>a+x.j,0);if(s>0)o.jumlah=s+(+o.ongkir||0);
