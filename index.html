@@ -366,7 +366,7 @@ function txView(){
   const list=S.tx.filter(x=>x.tgl.slice(0,7)===key).sort((a,b)=>a.tgl<b.tgl?-1:a.tgl>b.tgl?1:a.id-b.id);
   const ln=lastId&&S.tx.find(x=>x.id===lastId&&x.jenis==='belanja');
   const banner=ln?`<div class="card" style="border-color:var(--pr)"><b>Belanja tersimpan:</b> ${esc(ln.uraian)} (Rp ${rp(+ln.jumlah||0)})<div class="bar"><button class="pri" data-a="nota" data-id="${ln.id}">${ln.siplah?'Cetak bukti SIPLah':'Cetak nota / invoice'}</button></div></div>`:'';
-  return banner+`<details class="card"${editId||!list.length?' open':''}><summary><b>${editId?'Ubah transaksi':'Catat transaksi baru'}</b></summary><form id="f" style="margin-top:10px">
+  return banner+upCard()+`<details class="card"${editId||!list.length?' open':''}><summary><b>${editId?'Ubah transaksi':'Catat transaksi baru'}</b></summary><form id="f" style="margin-top:10px">
   <label>Jenis transaksi<select name="jenis">${sel('jenis',JN,'belanja')}</select></label>
   <label>Tanggal<input type="date" name="tgl" required value="${t?t.tgl:(today.slice(0,7)===key?today:key+'-01')}"></label>
   <label>No. bukti<input name="no" value="${v('no')}"></label>
@@ -415,6 +415,38 @@ function R(){
   toggle();
 }
 function toggle(){const f=$('#f');if(!f)return;const j=f.jenis.value;f.querySelectorAll('[data-j]').forEach(e=>e.style.display=e.dataset.j.split(' ').includes(j)?'':'none');const sp=j==='belanja'&&f.siplah.checked;f.querySelectorAll('.np').forEach(e=>{if(sp)e.style.display='none'});f.querySelectorAll('.sp').forEach(e=>e.style.display=sp?'':'none');const up=j==='belanja'&&f.upah.checked;f.querySelectorAll('.up').forEach(e=>e.style.display=up?'':'none');upv()}
+let uTg='';
+function uList(){
+  const key=mkey(),now=new Date().toISOString().slice(0,10);
+  const td=uTg&&uTg.slice(0,7)===key?uTg:(now.slice(0,7)===key?now:key+'-'+pad(new Date(S.id.tahun,mon+1,0).getDate()));
+  const L=S.pk.map(w=>{let h=0;const ks=[];Object.keys(S.ab).forEach(k=>{const p=k.split('|');if(p[0]===String(w.id)&&p[1].slice(0,7)===key&&p[1]<=td&&!S.pd[k]){h+=S.ab[k];ks.push(k)}});return{w,h,ks,j:Math.round(h*(+w.upah||0))}}).filter(x=>x.h>0);
+  return{td,L};
+}
+function upCard(){
+  const u=uList(),tot=u.L.reduce((a,x)=>a+x.j,0);
+  const isi=u.L.length?`<div class="scroll"><table class="l" style="margin-top:8px"><tr><th>Pekerja</th><th class="r">Hari</th><th class="r">Upah/hari</th><th class="r">Jumlah</th></tr>${u.L.map(x=>`<tr><td>${esc(x.w.nama)}</td><td class="r">${x.h}</td><td class="r">${rp(x.w.upah)}</td><td class="r">${rp(x.j)}</td></tr>`).join('')}<tr><td colspan="3" class="r"><b>Total</b></td><td class="r"><b>${rp(tot)}</b></td></tr></table></div><div class="bar"><label style="flex-direction:row;align-items:center;gap:8px">Tanggal bayar<input type="date" value="${u.td}" onchange="uTg=this.value;R()"></label><button class="pri" data-a="ubc">Bayar semua &amp; cetak nota</button></div>`:`<p class="sub">Tidak ada upah yang belum dibayar sampai ${fd(u.td)}. Isi kehadiran di tab Absensi, dan data pekerja di tab Pekerja.</p>`;
+  return `<div class="card"><b>Bayar upah pekerja (otomatis dari tab Pekerja dan Absensi)</b>${isi}</div>`;
+}
+function bayarCetak(){
+  const u=uList();if(!u.L.length){toast('Tidak ada upah yang perlu dibayar.',true);return}
+  const kl=kegList().find(k=>/upah/i.test(k.n)),id0=Date.now(),tg=u.td,rs=[];
+  u.L.forEach((x,i)=>{const w=x.w,up=+w.upah||0,id=id0+i;
+    S.tx.push({id,jenis:'belanja',tgl:tg,no:'',uraian:'Upah '+w.nama+' ('+x.h+' hari)',via:'kas',penyedia:w.nama,alamat:'',items:'Upah '+w.nama+' | '+x.h+' | hari | '+up,jumlah:x.j,ppn:'',pph:'',jpph:'PPh 21',keg:kl?kl.n:'',upah:'1',pekerja:w.nama,hari:x.h,uph:up,npwp:w.npwp,siplah:''});
+    x.ks.forEach(k=>{S.pd[k]=id});rs.push({n:w.nama,j:w.jabatan,h:x.h,u:up,t:x.j});
+  });
+  save();R();
+  const kas=rows().reduce((a,r)=>a+r.k,0);
+  if(kas<0)toast('Tercatat, tetapi kas tunai minus Rp '+rp(kas)+'. Catat Tarik tunai dari bank dulu.',true);
+  pr(notaUpah(rs,tg),'portrait');
+}
+function notaUpah(rs,tg){
+  const i=S.id,tot=rs.reduce((a,x)=>a+x.t,0);
+  return `<div class="doc nt"><div class="kop"><b>${esc(i.sekolah.toUpperCase())}</b>NPSN ${esc(i.npsn)} · Kabupaten/Kota ${esc(i.kab)}<br>Panitia Pembangunan Satuan Pendidikan (P2SP) · Program Revitalisasi Satuan Pendidikan TA ${i.tahun}</div>
+  <h2>BUKTI PEMBAYARAN UPAH PEKERJA</h2><p class="c">Tanggal pembayaran: ${fd(tg)}</p>
+  <table class="t"><tr><th width="28">No</th><th>Nama</th><th>Jabatan</th><th>Hari kerja</th><th>Upah/hari (Rp)</th><th>Jumlah (Rp)</th><th width="90">Tanda tangan</th></tr>${rs.map((x,k)=>`<tr><td class="r">${k+1}</td><td>${esc(x.n)}</td><td>${esc(x.j)}</td><td class="r">${x.h}</td><td class="r">${rp(x.u)}</td><td class="r">${rp(x.t)}</td><td style="height:30px"></td></tr>`).join('')}<tr class="sum"><td colspan="5" class="r">Total</td><td class="r">${rp(tot)}</td><td></td></tr></table>
+  <div class="box"><b>Terbilang:</b> <i>${esc(terbilang(tot))}</i></div>
+  <p>Upah telah dibayarkan secara tunai dan diterima dengan baik oleh pekerja yang bertanda tangan di atas.</p>${ttd()}</div>`;
+}
 function hitung(){
   const f=$('#f');let tot=items(f.items.value).reduce((a,x)=>a+x.j,0)||+f.jumlah.value||0;
   const tp=+$('#tppn').value||0,th=+$('#tpph').value||0;
@@ -435,6 +467,7 @@ document.addEventListener('click',e=>{
   else if(a==='am'){abMode=b.dataset.m;payD='';R()}
   else if(a==='aw'){abWeek=addD(wkStart(),+b.dataset.n);mon=+addD(abWeek,3).slice(5,7)-1;payD='';R()}
   else if(a==='abay')bayar();
+  else if(a==='ubc')bayarCetak();
   else if(a==='apr')pr(absDoc(),abMode==='bulan'?'landscape':'portrait');
   else if(a==='wedit'){editW=id;R();window.scrollTo(0,0)}
   else if(a==='wbt'){editW=null;R()}
